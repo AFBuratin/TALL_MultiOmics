@@ -36,7 +36,7 @@ library(MOVICS)
 library(dplyr)
 library(data.table)
 ## load data
-meta_Mull = read.csv(file.path(omicsdir, "meta_mull_complete.csv"))[c(3,77,86),]
+meta_Mull = read.csv(file.path(omicsdir, "meta_mull_complete.csv"))[-c(3,77,86),]
 meta_Mull$groupA = fct_collapse(meta_Mull$condition,
              IMM = c("NKX2_1","LMO2_LYL1"),
              HOXA = "HOXA",
@@ -58,6 +58,7 @@ make.dt = function(mat){
 mu.data = list(mut.status = t(mut_Mull[meta_Mull$sample,]),
                mRNA.expr = make.dt(mRNA_Mull[,c("X", meta_Mull$sample)]),
                circRNA.expr = make.dt(mat = circRNA_Mull[,c("X", meta_Mull$sample)]))
+
 ```
 
 # Analysis 1: Comparison of clusterization performance between joint Dimension Reduction (jDM) approaches using mRNA, circRNA and mutation status
@@ -126,7 +127,7 @@ To improve the clustering robustness we can borrow the idea of consensus ensembl
 cmoic.tall <- MOVICS::getConsensusMOIC(moic.res.list = muic.res.list,
                                fig.name      = "CONSENSUS HEATMAP",
                                distance      = "euclidean",
-                               linkage       = "complete", showID = F,
+                               linkage       = "complete", showID = F, 
                                fig.path = outdir)
 getSilhouette(sil      = cmoic.tall$sil, # a sil object returned by getConsensusMOIC()
               fig.path = getwd(),
@@ -316,30 +317,48 @@ mut.col    <- c("grey90" , "black")
 col.list   <- list(mut.col, mRNA.col, circRNA.col)
 
 # data normalization for heatmap
+rownames(mu.data$mut.status) = paste0(rownames(mu.data$mut.status),"_mut")
+rownames(mu.data$circRNA.expr) = paste0("circ", gene_to_circ$gene_name[match(rownames(mu.data$circRNA.expr), gene_to_circ$circ_id)],"(",rownames(mu.data$circRNA.expr),")")
+
 plotdata <- getStdiz(data       = mu.data,
                      halfwidth  = c(NA,2,2), # no truncation for mutation
                      centerFlag = c(F,T,T), # no center for mutation
                      scaleFlag  = c(F,T,T)) # no scale for mutation
 
-annCol    <- meta_Mull[,c("groupA", "ETP.status"), drop = FALSE]
+annCol    <- meta_Mull[,c("groupA", "ETP.status", "Gender"), drop = FALSE]
 annCol$groupA = as.factor(annCol$groupA)
-# annCol$Gender = factor(annCol$Gender)
-# annCol$Gender[which(is.na(annCol$Gender))] = "Unknown"
-# levels(annCol$Gender)
-annCol$ETP.status = as.factor(annCol$ETP.status)
+annCol$Gender[which(is.na(annCol$Gender))] = "Unknown"
+annCol$Gender = factor(annCol$Gender)
+levels(annCol$Gender)
 annCol$ETP.status[is.na(annCol$ETP.status)] = "Unevaluable"
+annCol$ETP.status[annCol$ETP.status=="N/A"] = "Unevaluable"
+
+annCol$ETP.status = factor(annCol$ETP.status, levels = c("ETP", "nearETP", "notETP", "Unevaluable"), ordered = T)
+
 rownames(annCol) = meta_Mull$sample
+colnames(annCol) = c("Subgroups", "ETP", "Gender")
 library(colorspace)
-annColors <- list(groupA  = setNames(qualitative_hcl(length(levels(annCol$groupA)), "Dark 3"),
-                                       nm = levels(annCol$groupA)),
-                  # Gender = c("Male"    = "blue",
-                  #            "Female"    = "pink"),
-                             # "Unknown"    = "gray"),
-                  ETP.status =setNames(qualitative_hcl(length(levels(annCol$ETP.status)), "Dark 2"),
-                                       nm = levels(annCol$ETP.status)))
+annColors <- list(Subgroups  = setNames(c("#FFA500", "#FF00FF", "#FFD700", "#C71585", "#FF4500", "#bcbcbc"), 
+                                     # qualitative_hcl(length(levels(annCol$groupA)), "Dark 3"),
+                                       nm = levels(annCol$Subgroups)),
+                  Gender = setNames(c("#f678a7","#62aec5","#bcbcbc"),
+                                    nm = levels(annCol$Gender)),
+                  ETP = setNames(c("#C87A8A", "#909646", "#00A396", "#bcbcbc"), #qualitative_hcl(length(levels(annCol$ETP.status)), "Dark 2"),
+                                       nm = levels(annCol$ETP)))
 # clust.dt = data.frame(samID = colnames(W), 
 #                       clust = clustering)
 # rownames(clust.dt) = clust.dt$samID
+circRNA_loadigs = as.data.frame(diablo.plot$loadings$circRNA.expr[diablo.plot$loadings$circRNA.expr[,1]!=0,])
+circRNA_loadigs$circID = rownames(circRNA_loadigs)
+top_circ = circRNA_loadigs %>% data.table() %>% dplyr::arrange(desc(abs(comp1))) %>% dplyr::select(circID)
+
+mRNA_loadigs = as.data.frame(diablo.plot$loadings$mRNA.expr[diablo.plot$loadings$mRNA.expr[,1]!=0,])
+mRNA_loadigs$mRNAID = rownames(mRNA_loadigs)
+top_gene = mRNA_loadigs %>% data.table() %>% dplyr::arrange(desc(abs(comp1))) %>% dplyr::select(mRNAID)
+feat = list(mutations = rownames(diablo.plot$loadings$mut.status[diablo.plot$loadings$mut.status[,1]!=0,])[1:5],
+                  mRNA = top_gene$mRNAID[1:10],
+                  circRNA = top_circ$circID[1:10])
+lapply(feat, length)
 clust.dt = cmoic.tall$clust.res
 # comprehensive heatmap (may take a while)
 MOVICS::getMoHeatmap(data         = plotdata,
@@ -350,18 +369,17 @@ MOVICS::getMoHeatmap(data         = plotdata,
              clust.dend    = NULL, # no dendrogram
              clust.dist.row = c("pearson", 
         "euclidean", "euclidean", "euclidean", "euclidean", "euclidean"), 
-    clust.method.row = c("ward.D2", "ward.D2", "ward.D2", "ward.D2", 
+    clust.method.row = c("average", "ward.D2", "ward.D2", "ward.D2", 
         "ward.D2", "ward.D2"),
              show.rownames = c(F,F,F), # specify for each omics data
              show.colnames = FALSE, # show no sample names
-             # annRow        = annRow, # mark selected features
+             annRow        = feat, # mark selected features
              color         = col.list,
              annCol        = annCol, # annotation for samples
              annColors     = annColors, # annotation color
              width         = 10, # width of each subheatmap
              height        = 5, # height of each subheatmap
-             fig.name      = "COMPREHENSIVE HEATMAP OF CONSENSUS CLUSTERING", 
-             fig.path      = outdir)
+             fig.name      = "COMPREHENSIVE HEATMAP OF CONSENSUS CLUSTERING")
 ```
 
 # Analysis 2: identified known and novel multi-omics biomarkers of the previously estimated subtypes - using mRNA, circRNAs and mutations
@@ -413,7 +431,6 @@ tune = tune.block.splsda(X = X, Y = Y, ncomp = 5,
                          nrepeat = 10)
 # saveRDS(tune, file.path(outdir, "tallPanel_tune_caseStudyK2N83Ns1000.rds"))
 tune <- readRDS(file.path(outdir, "tallPanel_tune_caseStudyK2N83Ns1000.rds"))
-
 ```
 
 ## Optimal model
@@ -424,12 +441,56 @@ all(rownames(tune$error.rate) == rownames(tune$error.rate.sd))
 ```
 
 ```{r}
-data.frame(keepX = rep(rownames(tune$error.rate), 5), 
+dt = data.frame(keepX = rep(rownames(tune$error.rate), 5), 
   meanError = as.numeric(tune$error.rate), 
   sdError = as.numeric(tune$error.rate.sd),
   comp = rep(paste0("comp", 1:5), each=nrow(tune$error.rate))) %>% 
-  group_by(comp) %>% 
-  filter(meanError == min(meanError))
+  mutate(comp=factor(comp), keepX=factor(keepX)) %>% 
+  group_by(keepX, comp) %>% 
+  arrange(desc(meanError),.by_group = T)
+# Calculate first minima for each Type
+m1_intercept <- dt[which(dt$comp == "comp1"), ][which.min(dt[which(dt$comp == "comp1"), ]$meanError),]
+m2_intercept <- dt[which(dt$comp == "comp2"), ][which.min(dt[which(dt$comp == "comp2"), ]$meanError),]
+m3_intercept <- dt[which(dt$comp == "comp3"), ][which.min(dt[which(dt$comp == "comp3"), ]$meanError),]
+m4_intercept <- df[which(df$Type == m2), ][which.min(df[which(df$Type == m2), ]$Value),]
+m5_intercept <- df[which(df$Type == m2), ][which.min(df[which(df$Type == m2), ]$Value),]
+# group_by(comp) %>% 
+  # filter(meanError == min(meanError)) %>% 
+  # filter(sdError == min(sdError)) %>% 
+dt.min = dt %>% group_by(comp) %>% filter(meanError == min(meanError)) %>% 
+  filter(sdError == min(sdError)) 
+dt.min$comp = factor(dt.min$comp, levels = c("comp1", "comp2", "comp3", "comp4", "comp5"), ordered = T)
+dt.min = dt.min[order(dt.min$comp),]
+dt.min$keepX = factor(dt.min$keepX, levels = c("11_25_85", "16_5_65", "1_5_5", "21_5_5", "1_45_5"), ordered = T)
+
+dt.min %>% ggplot(aes(x = reorder(keepX, comp), y= meanError, color = comp)) +
+  # facet_wrap(~comp, scales = "free_x") +
+       # geom_line() + 
+  geom_point(size = 4) + 
+       geom_errorbar(aes(ymin = meanError-sdError, ymax= meanError + sdError), 
+         width=.5, position=position_dodge(0.05)) + 
+  scale_color_discrete_sequential(palette = "Red-Blue", rev = F) + 
+  theme_classic() +
+  theme(text = element_text(size=16),
+        axis.text.x = element_text(size = 18),
+        axis.text.y = element_text(size = 16)) + 
+  labs(title="Optimal combination for each Dimension", y="Balanced Error Rate (BER, 10X5-fold cross-validation)", x = "") 
+
+dt %>%  filter(comp%in%c("comp1")) %>% 
+  ggplot(aes(x = keepX, y = meanError, color=comp)) + 
+  geom_line(aes(colour = comp, group = comp)) + 
+  geom_vline(aes(xintercept=m1_intercept$keepX, color=m1_intercept$comp)) +
+    geom_vline(aes(xintercept=m2_intercept$keepX, color=m2_intercept$comp)) +
+    geom_vline(aes(xintercept=m3_intercept$keepX, color=m3_intercept$comp)) +
+  theme_classic() +
+  xlab("") +
+  ylab("Balanced Error Rate (BER, 10X5-fold cross-validation)") +
+  theme(text = element_text(size = 15),
+        axis.text.y = element_text(size = 15),
+        axis.text.x =  element_blank())
+
+plot(MyPerf.bac.plsX, col = color.mixo(5:7), sd = TRUE, legend.position = "horizontal")
+
 ```
 
 ### optimal keepX
@@ -437,7 +498,9 @@ data.frame(keepX = rep(rownames(tune$error.rate), 5),
 ```{r}
 tune$choice.keepX
 ```
-The optimal multi-omics panel consisted of 20 mRNA, 50 circRNAs, 15 Mutations selected across three components with a balanced error rate of 23.4±5.5%. 
+
+The optimal multi-omics panel consisted of 84 mRNA, 142 circRNAs, 22 mutations selected across five components with a balanced error rate of 12±1.5%. 
+
 ## estimated Model cv error rates
 The centroids distance measure was used to compute the error rate. 
 
@@ -488,44 +551,45 @@ sapply(diabloPanel, length)
 diabloPanel <- lapply(diabloPanel, unique)
 ```
 
-### overlap between the diablo panel features (mutations, mRNA,circRNA) and with curated databases
+## overlap between the diablo panel features (mutations, mRNA,circRNA) and with curated databases
 
 ```{r}
-driverdbv2 <- read.delim(paste0(WhereAmI, "disease_collections/driverdbv2.txt"), header = FALSE) %>% 
-  as.matrix %>% 
-  as.character()
-mircancer <- read.delim(paste0(WhereAmI, "disease_collections/miRCancerOctober2017.txt"), header = FALSE)
-mircancer <- mircancer[grep("breast", tolower(as.character(mircancer$V2))), "V1"] %>% as.character() %>% unique()
-molsigdb <- collections[grep("BREAST", collections$geneset), "members_mrna"] %>% unlist %>% unique
-omim0 <- read.delim(paste0(WhereAmI, "disease_collections/OMIM_Disease.txt"), header = FALSE)
-omim <- apply(omim0[, -1], 1, function(i){
-    x <- as.character(as.matrix(i))[as.character(as.matrix(i)) != ""]
-    x[!is.na(x)]
-  })
-names(omim) <- as.character(omim0[,1])
-omim <- omim[grep("breast", names(omim), value = TRUE)] %>% 
-  unlist %>% unique
-brca_genes = list(DIABLO = unlist(unlist(diabloPanel)),
-                  MolSigDB = molsigdb,
-                  DriverDBv2 = driverdbv2,
-                  OMIM = omim,
-  miRCancer=mircancer)
-venn(brca_genes, ilab=TRUE, zcolor = "style")
-brcaDatabase <- data.frame(database = rep(c("MolSigDB", "DriverDBv2", "OMIM", "miRCancer"), c(length(molsigdb), length(driverdbv2), length(omim), length(mircancer))),
-  feature = c(molsigdb, driverdbv2, omim, mircancer))
+# driverdbv2 <- read.delim(paste0(WhereAmI, "disease_collections/driverdbv2.txt"), header = FALSE) %>% 
+#   as.matrix %>% 
+#   as.character()
+# mircancer <- read.delim(paste0(WhereAmI, "disease_collections/miRCancerOctober2017.txt"), header = FALSE)
+# mircancer <- mircancer[grep("breast", tolower(as.character(mircancer$V2))), "V1"] %>% as.character() %>% unique()
+# molsigdb <- collections[grep("BREAST", collections$geneset), "members_mrna"] %>% unlist %>% unique
+# omim0 <- read.delim(paste0(WhereAmI, "disease_collections/OMIM_Disease.txt"), header = FALSE)
+# omim <- apply(omim0[, -1], 1, function(i){
+#     x <- as.character(as.matrix(i))[as.character(as.matrix(i)) != ""]
+#     x[!is.na(x)]
+#   })
+# names(omim) <- as.character(omim0[,1])
+# omim <- omim[grep("breast", names(omim), value = TRUE)] %>% 
+#   unlist %>% unique
+
+dbLgL = read.csv("/sharedfs01/alessia/TALL_MultiOmics/disease_collections/dbLgL.csv")
+leukemia_genes = list(DIABLO = unlist(diabloPanel$mRNA.expr),
+                  dbLgL = dbLgL$GeneSymbol)
+venn(leukemia_genes, ilab=TRUE, zcolor = "style")
+leukemiaDatabase <- data.frame(database = rep(c("dbLgL"), c(length(dbLgL))),
+  feature = c(dbLgL))
 ```
 
 ## Feature Plot
 
-This panel identified many variables with previously known associations with breast cancer, as assessed by looking at the overlap between the panel features and gene sets related to breast cancer based on the Molecular Signature database (MolSigDB) [23], miRCancer [24], Online Mendelian Inheritance in Man (OMIM) [25], and DriverDBv2 [26]. 
-The feature plot depicts the variable contributions of each omics-type indicated by their loading weight (variable importance). Variables not found in any database may represent novel biomarkers of breast cancer.
+This panel identified many variables with previously known associations with ALL, as assessed by looking at the overlap between the panel features and gene sets related to ALL based on the dbLgL [23]. 
+The feature plot depicts the variable contributions of each omics-type indicated by their loading weight (variable importance). Variables not found in any database may represent novel biomarkers of T-ALL.
 
 ```{r brcaPanel_features, fig.path='Figures/', dev='png', fig.width = 10, fig.height=13}
-databases <- c("No overlap", "miRCancer", "DriverDBv2", "MolSigDB", "MolSigDB_DriverDBv2", "MolSigDB_DriverDBv2_OMIM", "MolSigDB_OMIM")
+databases <- c("No overlap", "dbLgL")
 featurePlot = function(panel, omicName, database){
   Dat <- rbind(mixOmics::selectVar(diablo, comp = 1)[[omicName]][["value"]], 
-  selectVar(diablo, comp = 2)[[omicName]][["value"]],
-  selectVar(diablo, comp = 3)[[omicName]][["value"]]) %>% 
+  mixOmics::selectVar(diablo, comp = 2)[[omicName]][["value"]],
+  mixOmics::selectVar(diablo, comp = 3)[[omicName]][["value"]],
+  mixOmics::selectVar(diablo, comp = 4)[[omicName]][["value"]],
+  mixOmics::selectVar(diablo, comp = 5)[[omicName]][["value"]]) %>% 
   data.frame() %>% 
   mutate(dataset = omicName,
          feature = gsub(";", "\n", rownames(.)),
@@ -534,7 +598,7 @@ featurePlot = function(panel, omicName, database){
   arrange(value.var) %>% 
   mutate(feature = factor(as.character(feature), feature))
   Dat$database <- sapply(as.character(Dat$feature), function(i){
-  paste(unique(as.character(subset(brcaDatabase, feature %in% unlist(strsplit(i, ";")))$database)), collapse = "_")})
+  paste(unique(as.character(subset(leukemiaDatabase, feature.GeneSymbol %in% unlist(strsplit(i, ";")))$database)), collapse = "_")})
   Dat$database[Dat$database == ""] <- "No overlap"
   Dat$database <- factor(as.character(Dat$database), databases)
   
@@ -548,14 +612,15 @@ featurePlot = function(panel, omicName, database){
 	Theme +
 	ggtitle(omicName) + ylab("Variables")
 }
-p1 <- featurePlot(panel=diabloPanel, omicName="mRNA", database=database) +
+p1 <- featurePlot(panel=diabloPanel, omicName="mRNA.expr", database=database) +
   theme(legend.position = c(0.95,0.15)) + scale_color_manual(values=c("#000000", "#E69F00", "#56B4E9")) + 
   theme(legend.title = element_text(size=16), 
     legend.text = element_text(size=16), 
     plot.title = element_text(size=26, face = "bold")) +
-  customTheme(sizeStripFont = 25, xAngle = 0.5, hjust = 0.5, vjust = 0.5,
-              xSize = 15, ySize = 9, xAxisSize = 20, yAxisSize = 20) + 
+  # customTheme(sizeStripFont = 25, xAngle = 0.5, hjust = 0.5, vjust = 0.5,
+  #             xSize = 15, ySize = 9, xAxisSize = 20, yAxisSize = 20) + 
   scale_x_continuous("", limits = c(0, 1), breaks = seq(0,1,0.2)) 
+p1
 p2 <- featurePlot(panel=diabloPanel, omicName="miRNA", database=database) +
   theme(legend.position = c(0.95,0.15)) + ylab("") + scale_color_manual(values=c("#000000", "#0072B2")) + 
   theme(legend.title = element_text(size=16), 
@@ -564,6 +629,7 @@ p2 <- featurePlot(panel=diabloPanel, omicName="miRNA", database=database) +
   customTheme(sizeStripFont = 25, xAngle = 0.5, hjust = 0.5, vjust = 0.5,
               xSize = 15, ySize = 9, xAxisSize = 20, yAxisSize = 20) + 
   scale_x_continuous("", limits = c(0, 1), breaks = seq(0,1,0.2))
+
 p3 <- featurePlot(panel=diabloPanel, omicName="CpGs", database=database) +
   theme(legend.position = c(0.95,0.15)) + scale_color_manual(values=c("#000000", "#E69F00")) + 
   theme(legend.title = element_text(size=16), 
@@ -589,18 +655,19 @@ The plot below depicts the consensus and individual omics component plots based 
 
 ```{r SamplePlots_trainEllipses_testPoints, fig.path='Figures/', dev='png', fig.height=13, fig.width=10}
 # model variates
-varDat.train <- rbindlist(lapply(diablo$variates[1:length(X)], as.data.frame), use.names = T, idcol = "Dataset")
+varDat.train <- rbindlist(lapply(diablo$variates[1:length(X)], as.data.frame), use.names = T, 
+                          idcol = "Dataset")
 # %>% dplyr::mutate(subj = rownames(.))
 varDat.train$subj <- rep(rownames(diablo$variates[1]$mut.status), e = 3)
 varDat.train$Class <- Y[match(varDat.train$subj, names(Y))]
-varDat.train <- varDat.train %>% group_by(Class, subj) %>% 
+varDat.train <- varDat.train %>% dplyr::select(Dataset, comp1, comp2, comp3, subj, Class) %>% group_by(Class, subj) %>% 
   dplyr::summarise_all(funs(mean)) %>% 
   mutate(Dataset = "Consensus") %>% 
-  dplyr::select(`comp1`, `comp2`, `comp3`, `comp4`, `comp5`, subj, Dataset, Class) %>% 
+  dplyr::select(`comp1`, `comp2`, `comp3`, subj, Dataset, Class) %>% 
   as.data.frame() %>% 
-  rbind(., varDat.train) %>% 
+  rbind(., varDat.train %>% dplyr::select(Dataset, comp1, comp2, comp3, subj, Class)) %>% 
   mutate(Dataset = factor(Dataset, c("Consensus", "mut.status", "mRNA.expr", "circRNA.expr"))) 
-colnames(varDat.train) <- c("comp 1", "comp 2", "comp 3", "comp 4", "comp 5", "subj", "Dataset", "Class")
+colnames(varDat.train) <- c("comp 1", "comp 2", "comp 3", "subj", "Dataset", "Class")
 
 p1 <- filter(varDat.train, Dataset == "Consensus") %>% 
   ggplot(aes(x = `comp 1`, y = `comp 2`, color = Class)) + 
@@ -613,6 +680,7 @@ p1 <- filter(varDat.train, Dataset == "Consensus") %>%
   theme(strip.text.x = element_text(size=26, face = "bold")) + 
   scale_color_manual(values=color.mixo(1:4)) +
   annotate("text", x = -1.5, y = -3.5, label = "Ellipses: training data \n points: test data", size =8)
+p1
 p2 <- filter(varDat.train, Dataset != "Consensus") %>% 
   ggplot(aes(x = `comp 1`, y = `comp 2`, color = Class)) + 
   geom_point(size = 2) +
@@ -623,13 +691,14 @@ p2 <- filter(varDat.train, Dataset != "Consensus") %>%
   xlab("Component 2") + ylab("Component 3") + 
   theme(strip.text.x = element_text(size=26, face = "bold")) + 
   scale_color_manual(values=color.mixo(1:4))
+p2
 plot_grid(p1, p2, ncol=1) 
 # Y = as.factor(Y)
-mixOmics::plotDiablo(diablo, ncomp = 1)
+mixOmics::plotDiablo(diablo, ncomp = 1, col.per.group = c("#619CFF", "#F8766D"))
 mixOmics::plotIndiv(diablo, ind.names = FALSE, legend = TRUE, 
           title = 'Sample Plots')
 dev.off()
-mixOmics::plotVar(diablo, var.names = F, 
+mixOmics::plotVar(diablo, var.names = F, comp = c(1,2),
         style = 'graphics', legend = TRUE,
         pch = c(16, 17, 15), cex = c(2,2,2), 
         col = c('darkorchid', 'brown1', 'lightgreen'))
@@ -638,12 +707,19 @@ colnames(diablo.plot$X$mut.status) = paste0(colnames(diablo.plot$X$mut.status),"
 rownames(diablo.plot$loadings$mut.status) = paste0(rownames(diablo.plot$loadings$mut.status), "_mut")
 colnames(diablo.plot$X$circRNA.expr) = paste0("circ", gene_to_circ$gene_name[match(rownames(diablo.plot$loadings$circRNA.expr), gene_to_circ$circ_id)],"(", colnames(diablo.plot$X$circRNA.expr),")")
 rownames(diablo.plot$loadings$circRNA.expr) = paste0("circ", gene_to_circ$gene_name[match(rownames(diablo.plot$loadings$circRNA.expr), gene_to_circ$circ_id)],"(", rownames(diablo.plot$loadings$circRNA.expr),")")
-cplot = mixOmics::circosPlot(object = diablo.plot, cutoff = 0.5, line = TRUE,
-           color.blocks= c('darkorchid', 'brown1', 'lightgreen'),
-           color.cor = c("chocolate3","grey20"), size.labels = 1.5)
-cplot
-network(diablo.plot, blocks = c(1,2,3), interactive = F,
-        color.node = c('darkorchid', 'brown1', 'lightgreen'), cutoff = 0.7)
+diablo.plot$keepX
+sum(diablo.plot$loadings$mRNA.expr[,1]!=0)
+png("/sharedfs01/alessia/TALL_MultiOmics/analysis/circosC123.png", width = 15, height = 15, units = "cm", res = 300)
+mixOmics::circosPlot(object = diablo.plot, cutoff = 0.5,
+                             line = TRUE, 
+                             color.Y = c("#619CFF", "#F8766D"),
+           color.blocks= c("#1F78B4", "#33A02C", "#E31A1C"),
+           color.cor = c("chocolate3","grey20"), 
+           size.labels = 1, comp = c(1:3), 
+           size.variables = 0.001)
+dev.off()
+network(mat = diablo.plot, blocks = c(1,2,3), interactive = F, 
+        color.node = c("#1F78B4", "#33A02C", "#E31A1C"), cutoff = 0.75)
 
 mixOmics::plotLoadings(diablo, comp = 1, contrib = 'max', method = 'median')
 ```
@@ -653,13 +729,17 @@ mixOmics::plotLoadings(diablo, comp = 1, contrib = 'max', method = 'median')
 Similarly, the heatmap showing the scaled expression of all features of the multi-omics biomarker panel, depicted a strong clustering of the Basal and Her2 samples whereas the Luminal A and B were mixed. 
 
 ```{r heatmap_brca, fig.path='Figures/', dev='png', fig.height=10, fig.width=8}
+dev.off()
 plot.new()
-mixOmics::cimDiablo(diablo.plot, row.names = T, col.names = T, 
-                    clust.method = c("ward.D", "ward.D"),
+diablo.plot$loadings$mut.status[diablo.plot$loadings$mut.status[,1]!=0,]
+mixOmics::cimDiablo(diablo.plot, comp = c(1,2,3,4,5), 
+                    color.Y = c("#619CFF", "#F8766D"),
+                    row.names = F, col.names = T, 
+                    clust.method = c("ward.D", "ward.D"), transpose = T,
                     dist.method = c("correlation","correlation"),
-                    row.cex = 0.6, col.cex = 0.3,
-                    legend.position = "topright", margins = c(10, 10), 
-                    # save = "png", name.save = "varSel2", 
+                    row.cex = 0.4, col.cex = 0.2, keysize = c(1,1),
+                    legend.position = "right", margins = c(2, 13), 
+                    #save = "png", name.save = "varSelallC", 
                     size.legend = 1)
 ```
 
@@ -700,7 +780,30 @@ mark.col <- rainbow(length(mark.groups), alpha=.5)
 
 plot(net, edge.curved=.5, vertex.label.cex=0.5, vertex.size=8, mark.groups=mark.groups, 
   mark.col=mark.col, vertex.label.color="black") 
-legend("bottomleft", names(diabloPanel)[c(2,3,1)], col=unique(V(net)$color), pch = 19, bty="n", cex = 1.5)
+legend("bottomleft", names(diabloPanel)[c(2,3,1)], col=unique(V(net)$color), 
+       pch = 19, bty="n", cex = 1.5)
+# saveRDS(net, "/sharedfs01/alessia/TALL_MultiOmics/networkSel045.rds")
+# saveRDS(mark.groups, "/sharedfs01/alessia/TALL_MultiOmics/networkmarkG045.rds")
+
+dt.net = rbindlist(lapply(mark.groups, data.frame), idcol="ColNet")
+dt.net$SYMBOL = sapply(strsplit(as.character(dt.net$X..i..), "_"), function(i) i[2])
+dt.net$datasets <- sapply(strsplit(as.character(dt.net$X..i..), "_"), function(i) i[1])
+dt.net$SYMBOL[dt.net$datasets=="circRNA.expr"] = gene_to_circ$gene_name[match(dt.net$SYMBOL[dt.net$datasets=="circRNA.expr"],gene_to_circ$circ_id)]
+
+dt.net[dt.net$ColNet==2,]
+# write.csv(dt.net, "/sharedfs01/alessia/TALL_MultiOmics/analysis/netDT.csv")
+# write.csv(links, "/sharedfs01/alessia/TALL_MultiOmics/analysis/linksDT.csv")
+DataSel = data.frame(ID = sapply(strsplit(as.character(dt.net$X..i..), "_"), function(i) i[2]),
+                     dataset = sapply(strsplit(as.character(dt.net$X..i..), "_"), function(i) i[1]))
+mRNA_Sel_FC_CS1vsCS2 = mRNA_Mull %>% dplyr::filter(X%in%DataSel$ID[DataSel$dataset=="mRNA.expr"]) %>% melt() %>% merge(factors_data, by.x = "variable", by.y = "row.names") %>% group_by(X, cl) %>% dplyr::summarise(m = mean(value)) %>% spread(cl, m) %>% dplyr::mutate(logFC = log(`1` / `2`)) %>% dplyr::rename(SYMBOL=X)
+circRNA_Sel_FC_CS1vsCS2 = circRNA_Mull %>% dplyr::filter(X%in%DataSel$ID[DataSel$dataset=="circRNA.expr"]) %>% melt() %>% merge(factors_data, by.x = "variable", by.y = "row.names") %>% group_by(X, cl) %>% dplyr::summarise(m = mean(value)) %>% spread(cl, m) %>% dplyr::mutate(logFC = log(`1` / `2`)) %>% dplyr::rename(SYMBOL=X)
+circRNA_Sel_FC_CS1vsCS2$HG =  gene_to_circ$gene_name[match(circRNA_Sel_FC_CS1vsCS2$SYMBOL,gene_to_circ$circ_id)]
+mut_Mull$X = rownames(mut_Mull)
+mu_status = mut_Mull %>% melt() %>% merge(factors_data, by.x = "X", by.y = "row.names") %>% group_by(variable, cl) %>% summarise(n = sum(value), n.cl = n()) %>%
+  mutate(freq = n / n.cl)
+# write.csv(mRNA_Sel_FC_CS1vsCS2, "/sharedfs01/alessia/TALL_MultiOmics/analysis/mRNA_Sel_FC_CS1vsCS2.csv")
+# write.csv(circRNA_Sel_FC_CS1vsCS2, "/sharedfs01/alessia/TALL_MultiOmics/analysis/circRNA_Sel_FC_CS1vsCS2.csv")
+# write.csv(mu_status, "/sharedfs01/alessia/TALL_MultiOmics/analysis/Mstatus_CS1vsCS2.csv")
 ```
 
 ### Number of variables of each omic-type in the red cluster
@@ -718,11 +821,20 @@ The largest cluster in the network consisted of 72 variables; 20 mRNAs, 21 miRNA
 ```{r genesetEnrichment_brca, fig.path='Figures/', dev='png', fig.height=7, fig.width=7}
 ## perform gene set enrichment analysis on each cluster of features
 ## intersection > 5 genes
-input <- unlist(strsplit(sapply(strsplit(mark.groups[[3]], "_"), function(i) i[2]), ";"))
+library(sear)
+input <- unlist(strsplit(sapply(strsplit(mark.groups[[1]], "_"), function(i) i[2]), ";"))
+input <- dt.net$SYMBOL[dt.net$datasets!="mut.status"]
+input <- dt.net$SYMBOL[dt.net$ColNet==2 & dt.net$datasets!="mut.status"]
+circD1 = rownames(diablo$loadings$circRNA.expr[diablo$loadings$circRNA.expr[,1]!=0,])
+circHGD1 = gene_to_circ$gene_name[gene_to_circ$circ_id%in%circD1]
+geneD1 = rownames(diablo.plot$loadings$mRNA.expr[diablo.plot$loadings$mRNA.expr[,1]!=0,])
+mutD1 = rownames(diablo.plot$loadings$mut.status[diablo.plot$loadings$mut.status[,1]!=0,])
+input = c(geneD1, circHGD1)
 enrichment <- sear(input, "mrna") %>% 
     group_by(collection, subcollection) %>% 
-    filter(fdr < 0.05, collection %in% "C2") %>% 
+    filter(fdr < 0.1, collection %in% "C2") %>% 
     filter(subcollection != "CGP")
+
 enrichment %>% ungroup %>% 
   mutate(geneset = tolower(sapply(strsplit(as.character(geneset), "_"), function(i) paste(i[-1], collapse=" ")))) %>% 
     arrange(desc(fdr)) %>% 
@@ -730,11 +842,16 @@ enrichment %>% ungroup %>%
   ggplot(aes(x = geneset, y = -log10(fdr), fill = subcollection, color = subcollection)) +
   geom_bar(stat = "identity", position = "dodge") +
   coord_flip() +
-  customTheme(sizeStripFont = 15, xAngle = 0, hjust = 0.5, vjust = 0.5, 
-    xSize = 20, ySize = 9, xAxisSize = 20, yAxisSize = 20) +
-  theme(legend.position = c(0.45,0.1)) +
+  # customTheme(sizeStripFont = 15, xAngle = 0, hjust = 0.5, vjust = 0.5, 
+  #   xSize = 20, ySize = 9, xAxisSize = 20, yAxisSize = 20) +
+  theme_classic() + 
+  theme(legend.position = "none", 
+        text = element_text(size=15)) +
   ylab(expression("-log"[10]~"FDR")) +
   xlab("Signficant Geneset at FDR=5%")
+
+
+
 ```
 
 
@@ -771,12 +888,3 @@ rbind(table(Y.train), table(Y.test)) %>%
 
 
 ## References
-3. Wang B, Mezlini AM, Demir F, Fiume M, Tu Z, Brudno M, et al. Similarity network fusion for aggregating data types on a genomic scale. Nat Methods [Internet]. 2014 [cited 2016 Jan 19];11:333–7. Available from: http://www.nature.com/doifinder/10.1038/nmeth.2810
-12. Rohart F, Gautier B, Singh A, Cao K-AL. mixOmics: An R package for ‘omics feature selection and multiple data integration. PLOS Comput Biol [Internet]. 2017 [cited 2018 Jan 29];13:e1005752. Available from: http://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1005752
-19. The TCGA Research Network. The Cancer Genome Atlas [Internet]. Available from: http://cancergenome.nih.gov/
-20. Singh A, Yamamoto M, Kam SHY, Ruan J, Gauvreau GM, O’Byrne PM, et al. Gene-metabolite expression in blood can discriminate allergen-induced isolated early from dual asthmatic responses. Hsu Y-H, editor. PLoS ONE [Internet]. 2013 [cited 2015 Jul 18];8:e67907. Available from: http://dx.plos.org/10.1371/journal.pone.0067907
-21. Singh A, Yamamoto M, Ruan J, Choi JY, Gauvreau GM, Olek S, et al. Th17/Treg ratio derived using DNA methylation analysis is associated with the late phase asthmatic response. Allergy Asthma Clin Immunol [Internet]. 2014 [cited 2016 Mar 2];10:32. Available from: http://www.biomedcentral.com/content/pdf/1710-1492-10-32.pdf
-23. Liberzon A, Birger C, Thorvaldsdóttir H, Ghandi M, Mesirov JP, Tamayo P. The Molecular Signatures Database Hallmark Gene Set Collection. Cell Syst [Internet]. 2015 [cited 2018 Jan 30];1:417–25. Available from: http://linkinghub.elsevier.com/retrieve/pii/S2405471215002185
-24. Xie B, Ding Q, Han H, Wu D. miRCancer: a microRNA-cancer association database constructed by text mining on literature. Bioinformatics [Internet]. 2013 [cited 2018 Jan 30];29:638–44. Available from: https://academic.oup.com/bioinformatics/article-lookup/doi/10.1093/bioinformatics/btt014
-25. Hamosh A. Online Mendelian Inheritance in Man (OMIM), a knowledgebase of human genes and genetic disorders. Nucleic Acids Res [Internet]. 2004 [cited 2018 Jan 30];33:D514–7. Available from: https://academic.oup.com/nar/article-lookup/doi/10.1093/nar/gki033
-26. Chung I-F, Chen C-Y, Su S-C, Li C-Y, Wu K-J, Wang H-W, et al. DriverDBv2: a database for human cancer driver gene research. Nucleic Acids Res [Internet]. 2016 [cited 2018 Jan 30];44:D975–9. Available from: https://academic.oup.com/nar/article-lookup/doi/10.1093/nar/gkv1314

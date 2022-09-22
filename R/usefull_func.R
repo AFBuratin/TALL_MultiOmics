@@ -270,3 +270,38 @@ circosPlot = function (object=diablo.plot, comp = 1:min(object$ncomp), cutoff, c
   par(xpd = opar, mar = opar1)
   return(invisible(simMat))
 }
+
+
+
+cluster_edge_betweenness = function (graph, weights = NULL, directed = TRUE, edge.betweenness = TRUE, 
+          merges = TRUE, bridges = TRUE, modularity = TRUE, membership = TRUE) 
+{
+  if (!is_igraph(graph)) {
+    stop("Not a graph object!")
+  }
+  if (is.null(weights) && "weight" %in% edge_attr_names(graph)) {
+    weights <- E(graph)$weight
+  }
+  if (!is.null(weights) && any(!is.na(weights))) {
+    weights <- as.numeric(weights)
+  }
+  else {
+    weights <- NULL
+  }
+  on.exit(.Call(C_R_igraph_finalizer))
+  res <- .Call(C_R_igraph_community_edge_betweenness, graph, 
+               weights, as.logical(directed), as.logical(edge.betweenness), 
+               as.logical(merges), as.logical(bridges), as.logical(modularity), 
+               as.logical(membership))
+  if (igraph_opt("add.vertex.names") && is_named(graph)) {
+    res$names <- V(graph)$name
+  }
+  res$vcount <- vcount(graph)
+  res$algorithm <- "edge betweenness"
+  res$membership <- res$membership + 1
+  res$merges <- res$merges + 1
+  res$removed.edges <- res$removed.edges + 1
+  res$bridges <- res$bridges + 1
+  class(res) <- "communities"
+  res
+}

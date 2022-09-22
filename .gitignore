@@ -9,3 +9,5 @@
 *.pdf
 */*.pdf
 */*.rda
+analysis/talldiablofullN83K2_perf.rds
+*.csv
