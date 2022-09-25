@@ -58,14 +58,26 @@ make.dt = function(mat){
 mu.data = list(mut.status = t(mut_Mull[meta_Mull$sample,]),
                mRNA.expr = make.dt(mRNA_Mull[,c("X", meta_Mull$sample)]),
                circRNA.expr = make.dt(mat = circRNA_Mull[,c("X", meta_Mull$sample)]))
+ggplot(meta_Mull, aes(groupA, fill=groupA)) +
+  geom_bar()+
+  scale_fill_manual(values = setNames(c("#FFA500", "#FF00FF", "#FFD700", "#C71585", "#FF4500", "#bcbcbc"),
+                                       nm=levels(annCol$Subgroups))) + theme_minimal()
 
+
+
+meta_Mull %>%
+    dplyr::count(groupA) %>%
+    dplyr::mutate(Subgroups = fct_reorder(groupA, n, .desc = TRUE)) %>%
+    ggplot(aes(x = Subgroups, y = n, fill = Subgroups)) + geom_bar(stat = 'identity') + scale_fill_manual(values = setNames(c("#FFA500", "#FF00FF", "#FFD700", "#C71585", "#FF4500", "#bcbcbc"),
+                                       nm=levels(annCol$Subgroups))) + theme_minimal() + xlab("") + ylab("") +
+  theme(axis.text.x = element_text(size=15, angle = 30, hjust = 1),
+        axis.text.y = element_text(size=15),
+        legend.text = element_text(size=15))
 ```
 
 # Analysis 1: Comparison of clusterization performance between joint Dimension Reduction (jDM) approaches using mRNA, circRNA and mutation status
 
 ## Elite feature selection 
-
-TO DO: ADD DISTRIBUTION OF MAD 
 
 ```{r include=FALSE}
 # scenario: 
@@ -570,11 +582,14 @@ diabloPanel <- lapply(diabloPanel, unique)
 #   unlist %>% unique
 
 dbLgL = read.csv("/sharedfs01/alessia/TALL_MultiOmics/disease_collections/dbLgL.csv")
-leukemia_genes = list(DIABLO = unlist(diabloPanel$mRNA.expr),
+leukemia_genes = list(DIABLO = input, #unlist(diabloPanel$mRNA.expr),
                   dbLgL = dbLgL$GeneSymbol)
 venn(leukemia_genes, ilab=TRUE, zcolor = "style")
 leukemiaDatabase <- data.frame(database = rep(c("dbLgL"), c(length(dbLgL))),
   feature = c(dbLgL))
+
+panel.net = list(mRNA.expr = input.mRNA, 
+                 circRNA.expr = circRNA_Sel_FC_CS1vsCS2$HG[match(input.circ, circRNA_Sel_FC_CS1vsCS2$SYMBOL)])
 ```
 
 ## Feature Plot
@@ -602,8 +617,8 @@ featurePlot = function(panel, omicName, database){
   Dat$database[Dat$database == ""] <- "No overlap"
   Dat$database <- factor(as.character(Dat$database), databases)
   
-  Segment <- geom_segment(aes(yend = feature, color = database), xend = 0, size = 1)
-  Point <- geom_point(size = 4, aes(color = database, fill = database)) 
+  Segment <- geom_segment(aes(yend = feature, color = database), xend = 0, size = 0.8)
+  Point <- geom_point(size = 2, aes(color = database, fill = database)) 
   Theme <- theme_bw() + theme(panel.grid.major.y = element_blank(),legend.justification = c(1, 0.5))
   
   ggplot(Dat, aes(x = value.var, y = feature)) +
@@ -616,20 +631,23 @@ p1 <- featurePlot(panel=diabloPanel, omicName="mRNA.expr", database=database) +
   theme(legend.position = c(0.95,0.15)) + scale_color_manual(values=c("#000000", "#E69F00", "#56B4E9")) + 
   theme(legend.title = element_text(size=16), 
     legend.text = element_text(size=16), 
-    plot.title = element_text(size=26, face = "bold")) +
+    plot.title = element_text(size=26, face = "bold"),
+    axis.text.y = element_text(size = 7)) +
   # customTheme(sizeStripFont = 25, xAngle = 0.5, hjust = 0.5, vjust = 0.5,
   #             xSize = 15, ySize = 9, xAxisSize = 20, yAxisSize = 20) + 
   scale_x_continuous("", limits = c(0, 1), breaks = seq(0,1,0.2)) 
 p1
-p2 <- featurePlot(panel=diabloPanel, omicName="miRNA", database=database) +
+p2 <- featurePlot(panel=diabloPanel, omicName="circRNA.expr", database=database) +
   theme(legend.position = c(0.95,0.15)) + ylab("") + scale_color_manual(values=c("#000000", "#0072B2")) + 
   theme(legend.title = element_text(size=16), 
     legend.text = element_text(size=16), 
     plot.title = element_text(size=26, face = "bold")) +
-  customTheme(sizeStripFont = 25, xAngle = 0.5, hjust = 0.5, vjust = 0.5,
-              xSize = 15, ySize = 9, xAxisSize = 20, yAxisSize = 20) + 
+  theme(legend.title = element_text(size=16), 
+    legend.text = element_text(size=16), 
+    plot.title = element_text(size=26, face = "bold"),
+    axis.text.y = element_text(size = 7)) +
   scale_x_continuous("", limits = c(0, 1), breaks = seq(0,1,0.2))
-
+p2
 p3 <- featurePlot(panel=diabloPanel, omicName="CpGs", database=database) +
   theme(legend.position = c(0.95,0.15)) + scale_color_manual(values=c("#000000", "#E69F00")) + 
   theme(legend.title = element_text(size=16), 
@@ -710,18 +728,18 @@ rownames(diablo.plot$loadings$circRNA.expr) = paste0("circ", gene_to_circ$gene_n
 diablo.plot$keepX
 sum(diablo.plot$loadings$mRNA.expr[,1]!=0)
 png("/sharedfs01/alessia/TALL_MultiOmics/analysis/circosC123.png", width = 15, height = 15, units = "cm", res = 300)
-mixOmics::circosPlot(object = diablo.plot, cutoff = 0.5,
+mixOmics::circosPlot(object = diablo.plot, cutoff = 0.7,
                              line = TRUE, 
                              color.Y = c("#619CFF", "#F8766D"),
            color.blocks= c("#1F78B4", "#33A02C", "#E31A1C"),
            color.cor = c("chocolate3","grey20"), 
            size.labels = 1, comp = c(1:3), 
-           size.variables = 0.001)
+           size.variables = 0.000001)
 dev.off()
-network(mat = diablo.plot, blocks = c(1,2,3), interactive = F, 
-        color.node = c("#1F78B4", "#33A02C", "#E31A1C"), cutoff = 0.75)
+NET = network(mat = diablo.plot, blocks = c(1,2,3), interactive = F, 
+        color.node = c("#1F78B4", "#33A02C", "#E31A1C"), cutoff = 0.7)
 
-mixOmics::plotLoadings(diablo, comp = 1, contrib = 'max', method = 'median')
+mixOmics::plotLoadings(diablo.plot, comp = 1, contrib = 'max', method = 'median')
 ```
 
 ## Heatmap
@@ -778,8 +796,11 @@ mark.groups <- split(as.character(nodes$id), factor(ceb$membership))
 mark.groups <- mark.groups[sapply(mark.groups, length) > 3]
 mark.col <- rainbow(length(mark.groups), alpha=.5)
 
-plot(net, edge.curved=.5, vertex.label.cex=0.5, vertex.size=8, mark.groups=mark.groups, 
-  mark.col=mark.col, vertex.label.color="black") 
+net4 = subgraph(net, vids = mark.groups$`4`)
+plot(net4, edge.curved=.5, vertex.label.cex=0.00000001, vertex.size=8, 
+     # mark.groups=mark.groups, 
+     # mark.col=mark.col, 
+     vertex.label.color="black") 
 legend("bottomleft", names(diabloPanel)[c(2,3,1)], col=unique(V(net)$color), 
        pch = 19, bty="n", cex = 1.5)
 # saveRDS(net, "/sharedfs01/alessia/TALL_MultiOmics/networkSel045.rds")
@@ -823,7 +844,7 @@ The largest cluster in the network consisted of 72 variables; 20 mRNAs, 21 miRNA
 ## intersection > 5 genes
 library(sear)
 input <- unlist(strsplit(sapply(strsplit(mark.groups[[1]], "_"), function(i) i[2]), ";"))
-input <- dt.net$SYMBOL[dt.net$datasets!="mut.status"]
+input <- dt.net$SYMBOL#[dt.net$datasets!="mut.status"]
 input <- dt.net$SYMBOL[dt.net$ColNet==2 & dt.net$datasets!="mut.status"]
 circD1 = rownames(diablo$loadings$circRNA.expr[diablo$loadings$circRNA.expr[,1]!=0,])
 circHGD1 = gene_to_circ$gene_name[gene_to_circ$circ_id%in%circD1]
@@ -832,8 +853,45 @@ mutD1 = rownames(diablo.plot$loadings$mut.status[diablo.plot$loadings$mut.status
 input = c(geneD1, circHGD1)
 enrichment <- sear(input, "mrna") %>% 
     group_by(collection, subcollection) %>% 
-    filter(fdr < 0.1, collection %in% "C2") %>% 
+    filter(fdr < 0.1, collection %in% c("C2")) %>% 
     filter(subcollection != "CGP")
+enrichmentHM <- sear(input, "mrna") %>% 
+    group_by(collection, subcollection) %>% 
+    filter(fdr < 0.1, collection %in% c("H")) %>% 
+    filter(subcollection != "CGP")
+enrich.sign = input[input%in%enrichmentHM$members[enrichmentHM$geneset=="HALLMARK_MYC_TARGETS_V1"][[1]]]
+enrich.sign = input[input%in%enrichment$members[enrichment$geneset=="KEGG_WNT_SIGNALING_PATHWAY"][[1]]]
+
+net4 = subgraph(net, vids = dt.net[dt.net$SYMBOL%in%enrich.sign,]$X..i..)
+plot(net4, edge.curved=.5, vertex.label.cex=1.5, vertex.size=8, 
+     # mark.groups=mark.groups, 
+     # mark.col=mark.col, 
+     vertex.label.color="black") 
+legend("bottomleft", names(diabloPanel)[c(2,3,1)], col=unique(V(net)$color), 
+       pch = 19, bty="n", cex = 1.5)
+
+dt.net[dt.net$X..i..%in%mark.groups$`4`,]
+links.sign = links[links$to%in%dt.net[dt.net$SYMBOL%in%enrich.sign,]$X..i.. | links$from%in%dt.net[dt.net$SYMBOL%in%enrich.sign,]$X..i..,]
+nodes.sign <- data.frame(id = unique(c(links.sign$to, links.sign$from)))
+nodes.sign$datasets <- sapply(strsplit(as.character(nodes.sign$id), "_"), function(i) i[1])
+nodes.sign$datasets = factor(nodes.sign$datasets, levels = c("mut.status", "mRNA.expr", "circRNA.expr"))
+net.sign <- graph_from_data_frame(d=links.sign, directed=FALSE) 
+E(net.sign)$color <- links.sign$Color
+V(net.sign)$color <- color.blocks[as.numeric(nodes.sign$datasets)]
+E(net.sign)$weight <- abs(links.wnt$cor)
+weight <- E(net.sign)$weight
+# weight[weight == 0.4] <- 0.3
+ceb <- cluster_edge_betweenness(graph = net.sign) 
+mark.groups <- split(as.character(nodes.sign$id), factor(ceb$membership))
+mark.groups <- mark.groups[sapply(mark.groups, length) > 5]
+mark.col <- rainbow(length(mark.groups), alpha=.5)
+plot(net.sign, edge.curved=.5, vertex.label.cex=0.7, vertex.size=8, 
+     mark.groups=mark.groups, 
+     mark.col=mark.col, 
+     vertex.label.color="black") 
+legend("bottomleft", names(diabloPanel)[c(2,3,1)], col=unique(V(net)$color), 
+       pch = 19, bty="n", cex = 1.5)
+
 
 enrichment %>% ungroup %>% 
   mutate(geneset = tolower(sapply(strsplit(as.character(geneset), "_"), function(i) paste(i[-1], collapse=" ")))) %>% 
@@ -845,12 +903,10 @@ enrichment %>% ungroup %>%
   # customTheme(sizeStripFont = 15, xAngle = 0, hjust = 0.5, vjust = 0.5, 
   #   xSize = 20, ySize = 9, xAxisSize = 20, yAxisSize = 20) +
   theme_classic() + 
-  theme(legend.position = "none", 
+  theme(legend.position = c(0.61,0.3), 
         text = element_text(size=15)) +
   ylab(expression("-log"[10]~"FDR")) +
   xlab("Signficant Geneset at FDR=5%")
-
-
 
 ```
 

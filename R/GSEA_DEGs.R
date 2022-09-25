@@ -1,13 +1,12 @@
-table_Sil = read.csv("/media/Data/TALL/FBXW7/Array_sicFBXW7_RPMI/Table_Sil_RPMI.csv")
-table_Sil = tab_sil_KOPTK1
-## sign genes
-DE_genes <- subset(table_Sil, adj.P.Val <= 0.1)
-geneList <- pat_enrich$logFC_mean
-geneList = DE_genes$logFC
-names(geneList) <- DE_genes$SYMBOL#circ_to_genes$gene_names[match(rownames(res[which(padj<0.05),]), circ_to_genes$circ_id)]
-names(geneList) = pat_enrich$SYMBOL
+
+input.mRNA <- dt.net$SYMBOL[dt.net$datasets=="mRNA.expr"]
+input.circ <- sapply(strsplit(dt.net$X..i..[dt.net$datasets=="circRNA.expr"], "_"), function(i) i[2])
+geneList <- c(mRNA_Sel_FC_CS1vsCS2$logFC[match(input.mRNA, mRNA_Sel_FC_CS1vsCS2$SYMBOL)],
+              circRNA_Sel_FC_CS1vsCS2$logFC[match(input.circ, circRNA_Sel_FC_CS1vsCS2$SYMBOL)])
+
+names(geneList) = c(input.mRNA,  circRNA_Sel_FC_CS1vsCS2$HG[match(input.circ, circRNA_Sel_FC_CS1vsCS2$SYMBOL)])
 geneList = sort(geneList, decreasing = TRUE)
-gene <- names(geneList)[!is.na(names(geneList))]#[abs(geneList)>=0.5]
+length(geneList)
 
 library(clusterProfiler)
 library(enrichplot)
@@ -49,13 +48,13 @@ gse@result[gse@result$Description=="regulation of cell cycle G1/S phase transiti
 dotplot(gse, showCategory=20, split=".sign") + facet_grid(.~.sign)
 library(data.table)
 library(ggh4x)
-activated = gse@result[gse@result$Description %like% 'G1/S|cell cycle|centrosome|microtubule',] %>% as.data.table() %>% 
-  arrange(enrichmentScore) %>% top_n(20) %>% select(Description)
+activated = gse@result %>% filter(enrichmentScore>0) %>% as.data.table() %>% 
+  arrange(enrichmentScore) %>% top_n(20, -p.adjust) %>% dplyr::select(Description)
 
 png(filename = "/media/Data/TALL/FBXW7/Array_sicFBXW7_RPMI/gse_Silencing_ACT.png",
     width = 20, height = 22, units = "cm", res = 200)
 dotplot(gse, showCategory=activated$Description, split=".sign") + facet_wrap(.~.sign, nrow = 1) +
-  force_panelsizes(cols = c(0.1, 0.1)) +
+  # force_panelsizes(cols = c(0.1, 0.1)) +
   theme_bw() + # Just to show you can still add things
   theme(legend.position = "right",
         text = element_text(size=15),
@@ -67,12 +66,12 @@ dotplot(gse, showCategory=activated$Description, split=".sign") + facet_wrap(.~.
 dev.off()
 
 suppressed = gse@result %>% filter(enrichmentScore<0) %>% as.data.table() %>% 
-  arrange(enrichmentScore) %>% top_n(20, -p.adjust) %>% select(Description)
+  arrange(enrichmentScore) %>% top_n(20, -p.adjust) %>% dplyr::select(Description)
 
 png(filename = "/media/Data/TALL/FBXW7/Array_sicFBXW7_RPMI/gse_Silencing_SUPP.png",
     width = 20, height = 22, units = "cm", res = 200)
 dotplot(gse, showCategory=suppressed$Description, split=".sign") + facet_wrap(.~.sign, nrow = 1) +
-  force_panelsizes(cols = c(0.1, 0.1)) +
+  # force_panelsizes(cols = c(0.1, 0.1)) +
   theme_bw() + # Just to show you can still add things
   theme(legend.position = "right",
         text = element_text(size=15),
@@ -83,7 +82,6 @@ dotplot(gse, showCategory=suppressed$Description, split=".sign") + facet_wrap(.~
         axis.text.x=element_text(size=15)) 
 dev.off()
 
-load("/media/Data/TALL/FBXW7/Array_sicFBXW7_KOPTK1/data_final.rda")
 back_genes_idx <- genefilter::genefinder(data_final,  
                                          as.character(DE_genes$PROBEID), 
                                          method = "manhattan", scale = "none")
