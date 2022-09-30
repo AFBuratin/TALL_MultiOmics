@@ -845,7 +845,7 @@ The largest cluster in the network consisted of 72 variables; 20 mRNAs, 21 miRNA
 library(sear)
 input <- unlist(strsplit(sapply(strsplit(mark.groups[[1]], "_"), function(i) i[2]), ";"))
 input <- dt.net$SYMBOL#[dt.net$datasets!="mut.status"]
-input <- dt.net$SYMBOL[dt.net$ColNet==2 & dt.net$datasets!="mut.status"]
+input <- unique(dt.net$SYMBOL[dt.net$ColNet==4])
 circD1 = rownames(diablo$loadings$circRNA.expr[diablo$loadings$circRNA.expr[,1]!=0,])
 circHGD1 = gene_to_circ$gene_name[gene_to_circ$circ_id%in%circD1]
 geneD1 = rownames(diablo.plot$loadings$mRNA.expr[diablo.plot$loadings$mRNA.expr[,1]!=0,])
